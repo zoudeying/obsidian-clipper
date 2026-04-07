@@ -189,6 +189,12 @@
 	"done": {
 		"message": "完成"
 	},
+	"downloadImages": {
+		"message": "下载图片"
+	},
+	"downloadImagesDescription": {
+		"message": "将图片以 base64 数据嵌入到剪藏笔记中，以便离线查看。这会增加笔记大小，但可以确保即使原始来源需要登录认证，图片也能被保留。"
+	},
 	"dragAndDropFile": {
 		"message": "将文件拖放到此处"
 	},

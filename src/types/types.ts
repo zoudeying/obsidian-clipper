@@ -76,6 +76,7 @@ export interface Settings {
 	betaFeatures: boolean;
 	legacyMode: boolean;
 	silentOpen: boolean;
+	downloadImages: boolean;
 	openBehavior: 'popup' | 'embedded' | 'reader';
 	highlighterEnabled: boolean;
 	alwaysShowHighlights: boolean;

@@ -21,6 +21,7 @@ import { memoizeWithExpiration } from '../utils/memoize';
 import { debounce } from '../utils/debounce';
 import { sanitizeFileName } from '../utils/string-utils';
 import { saveFile } from '../utils/file-utils';
+import { replaceImagesWithBase64 } from '../utils/image-downloader';
 import { translatePage, getMessage, setupLanguageAndDirection } from '../utils/i18n';
 import { formatPropertyValue } from '../utils/shared';
 
@@ -85,14 +86,14 @@ async function getCurrentTabInfo(): Promise<{ url: string; title?: string }> {
 	if (!currentTabId) {
 		return { url: '' };
 	}
-	
+
 	try {
 		const tab = await getTabInfo(currentTabId);
 		// Try to get the title from the extracted content if available
 		const extractedData = await memoizedExtractPageContent(currentTabId);
-		return { 
-			url: tab.url, 
-			title: extractedData?.title || document.title 
+		return {
+			url: tab.url,
+			title: extractedData?.title || document.title
 		};
 	} catch (error) {
 		console.warn('Failed to get current tab info for stats:', error);
@@ -121,21 +122,21 @@ let previousWidth = window.innerWidth;
 function setPopupDimensions() {
 	// Get the actual height of the popup after the browser has determined its maximum
 	const actualHeight = document.documentElement.offsetHeight;
-	
+
 	// Calculate the viewport height and width
 	const viewportHeight = window.innerHeight;
 	const viewportWidth = window.innerWidth;
-	
+
 	// Use the smaller of the two heights
 	const finalHeight = Math.min(actualHeight, viewportHeight);
-	
+
 	// Set the --popup-height CSS variable to the final height
 	document.documentElement.style.setProperty('--chromium-popup-height', `${finalHeight}px`);
 
 	// Check if the width has changed
 	if (viewportWidth !== previousWidth) {
 		previousWidth = viewportWidth;
-		
+
 		// Adjust the note name field height
 		const noteNameField = document.getElementById('note-name-field') as HTMLTextAreaElement;
 		if (noteNameField) {
@@ -150,17 +151,17 @@ async function initializeExtension(tabId: number) {
 	try {
 		// Initialize translations
 		await translatePage();
-		
+
 		// Setup language and RTL support
 		await setupLanguageAndDirection();
-		
+
 		// First, add the browser class to allow browser-specific styles to apply
 		await addBrowserClassToHtml();
-		
+
 		// Set an initial large height to allow the browser to determine the maximum height
 		// This is necessary for browsers that allow scaling the popup via page zoom
 		document.documentElement.style.setProperty('--chromium-popup-height', '2000px');
-		
+
 		// Use setTimeout to ensure the DOM has updated before we measure
 		setTimeout(() => {
 			setPopupDimensions();
@@ -222,10 +223,10 @@ function setupMessageListeners() {
 	browser.runtime.onMessage.addListener((request: any, sender: browser.Runtime.MessageSender, sendResponse: (response?: any) => void) => {
 		if (request.action === "triggerQuickClip") {
 			handleClipObsidian().then(() => {
-				sendResponse({success: true});
+				sendResponse({ success: true });
 			}).catch((error) => {
 				console.error('Error in handleClipObsidian:', error);
-				sendResponse({success: false, error: error.message});
+				sendResponse({ success: false, error: error.message });
 			});
 			return true;
 		} else if (request.action === "tabUrlChanged") {
@@ -265,7 +266,7 @@ function setupMessageListeners() {
 	});
 }
 
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
 	loadedSettings = await loadSettings();
 	if (isIframe) {
 		document.documentElement.classList.add('is-embedded');
@@ -280,7 +281,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 			showError(getMessage('pleaseReload'));
 			return;
 		}
-		
+
 		currentTabId = response.tabId;
 		const tab = await getTabInfo(currentTabId);
 		const currentBrowser = await detectBrowser();
@@ -319,7 +320,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 		}
 		const settingsButton = document.getElementById('open-settings');
 		if (settingsButton) {
-			settingsButton.addEventListener('click', async function() {
+			settingsButton.addEventListener('click', async function () {
 				try {
 					await browser.runtime.sendMessage({ action: "openOptionsPage" });
 					setTimeout(() => window.close(), 50);
@@ -372,7 +373,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 function setupEventListeners(tabId: number) {
 	const templateDropdown = document.getElementById('template-select') as HTMLSelectElement;
 	if (templateDropdown) {
-		templateDropdown.addEventListener('change', function(this: HTMLSelectElement) {
+		templateDropdown.addEventListener('change', function (this: HTMLSelectElement) {
 			handleTemplateChange(this.value);
 		});
 	}
@@ -380,7 +381,7 @@ function setupEventListeners(tabId: number) {
 	const noteNameField = document.getElementById('note-name-field') as HTMLTextAreaElement;
 	if (noteNameField) {
 		noteNameField.addEventListener('input', () => adjustNoteNameHeight(noteNameField));
-		noteNameField.addEventListener('keydown', function(e) {
+		noteNameField.addEventListener('keydown', function (e) {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
 			}
@@ -393,16 +394,16 @@ function setupEventListeners(tabId: number) {
 	}
 
 	const embeddedModeButton = document.getElementById('embedded-mode');
-		if (embeddedModeButton) {
-			embeddedModeButton.addEventListener('click', async function() {
-				try {
-					await browser.runtime.sendMessage({ action: "getActiveTabAndToggleIframe" });
-					setTimeout(() => window.close(), 50);
-				} catch (error) {
-					console.error('Error toggling emedded iframe:', error);
-				}
-			});
-		}
+	if (embeddedModeButton) {
+		embeddedModeButton.addEventListener('click', async function () {
+			try {
+				await browser.runtime.sendMessage({ action: "getActiveTabAndToggleIframe" });
+				setTimeout(() => window.close(), 50);
+			} catch (error) {
+				console.error('Error toggling emedded iframe:', error);
+			}
+		});
+	}
 
 	const moreButton = document.getElementById('more-btn');
 	const moreDropdown = document.getElementById('more-dropdown');
@@ -431,7 +432,7 @@ function setupEventListeners(tabId: number) {
 			const noteContentField = document.getElementById('note-content-field') as HTMLTextAreaElement;
 			const frontmatter = await generateFrontmatter(properties);
 			const fileContent = frontmatter + noteContentField.value;
-			
+
 			await copyToClipboard(fileContent);
 		});
 	}
@@ -448,14 +449,14 @@ function setupEventListeners(tabId: number) {
 				const properties = getPropertiesFromDOM();
 
 				const noteContentField = document.getElementById('note-content-field') as HTMLTextAreaElement;
-				
+
 				// Use Promise.all to prepare the data
 				Promise.all([
 					generateFrontmatter(properties),
 					Promise.resolve(noteContentField.value)
 				]).then(([frontmatter, noteContent]) => {
 					const fileContent = frontmatter + noteContent;
-					
+
 					// Call share directly from the click handler
 					const noteNameField = document.getElementById('note-name-field') as HTMLInputElement;
 					let fileName = noteNameField?.value || 'untitled';
@@ -467,7 +468,7 @@ function setupEventListeners(tabId: number) {
 					if (navigator.share && navigator.canShare) {
 						const blob = new Blob([fileContent], { type: 'text/markdown;charset=utf-8' });
 						const file = new File([blob], fileName, { type: 'text/markdown;charset=utf-8' });
-						
+
 						const shareData = {
 							files: [file],
 							text: 'Shared from Obsidian Web Clipper'
@@ -485,7 +486,7 @@ function setupEventListeners(tabId: number) {
 									await incrementStat('share', vault, path, tabInfo.url, tabInfo.title);
 									const moreDropdown = document.getElementById('more-dropdown');
 									if (moreDropdown) {
-											moreDropdown.classList.remove('show');
+										moreDropdown.classList.remove('show');
 									}
 								})
 								.catch((error) => {
@@ -555,7 +556,7 @@ async function initializeUI() {
 
 	if (isSidePanel) {
 		browser.runtime.sendMessage({ action: "sidePanelOpened" });
-		
+
 		window.addEventListener('unload', () => {
 			browser.runtime.sendMessage({ action: "sidePanelClosed" });
 		});
@@ -930,7 +931,7 @@ async function fillTemplateFieldValues(currentTabId: number, template: Template 
 function setupMetadataToggle() {
 	const metadataHeader = document.querySelector('.metadata-properties-header') as HTMLElement;
 	const metadataProperties = document.querySelector('.metadata-properties') as HTMLElement;
-	
+
 	if (metadataHeader && metadataProperties) {
 		metadataHeader.removeEventListener('click', toggleMetadataProperties);
 		metadataHeader.addEventListener('click', toggleMetadataProperties);
@@ -939,7 +940,7 @@ function setupMetadataToggle() {
 		getLocalStorage('propertiesCollapsed').then((isCollapsed) => {
 			if (isCollapsed === undefined) {
 				// If the value is not set, default to not collapsed
-				updateMetadataToggleState(false); 
+				updateMetadataToggleState(false);
 			} else {
 				updateMetadataToggleState(isCollapsed);
 			}
@@ -950,7 +951,7 @@ function setupMetadataToggle() {
 function toggleMetadataProperties() {
 	const metadataProperties = document.querySelector('.metadata-properties') as HTMLElement;
 	const metadataHeader = document.querySelector('.metadata-properties-header') as HTMLElement;
-	
+
 	if (metadataProperties && metadataHeader) {
 		const isCollapsed = metadataProperties.classList.toggle('collapsed');
 		metadataHeader.classList.toggle('collapsed');
@@ -961,7 +962,7 @@ function toggleMetadataProperties() {
 function updateMetadataToggleState(isCollapsed: boolean) {
 	const metadataProperties = document.querySelector('.metadata-properties') as HTMLElement;
 	const metadataHeader = document.querySelector('.metadata-properties-header') as HTMLElement;
-	
+
 	if (metadataProperties && metadataHeader) {
 		if (isCollapsed) {
 			metadataProperties.classList.add('collapsed');
@@ -1009,7 +1010,7 @@ function updateVaultDropdown(vaults: string[]) {
 
 	// Clear existing options
 	vaultDropdown.textContent = '';
-	
+
 	vaults.forEach(vault => {
 		const option = document.createElement('option');
 		option.value = vault;
@@ -1053,9 +1054,9 @@ async function checkHighlighterModeState(tabId: number) {
 		}) as { isActive: boolean };
 
 		const isHighlighterMode = response.isActive;
-		
+
 		loadedSettings = await loadSettings();
-		
+
 		updateHighlighterModeUI(isHighlighterMode);
 	} catch (error) {
 		console.error('Error checking highlighter mode state:', error);
@@ -1104,7 +1105,7 @@ function updateHighlighterModeUI(isActive: boolean) {
 
 async function toggleReaderMode(tabId: number) {
 	try {
-		const response = await browser.runtime.sendMessage({ 
+		const response = await browser.runtime.sendMessage({
 			action: "toggleReaderMode",
 			tabId: tabId
 		}) as ReaderModeResponse;
@@ -1144,7 +1145,7 @@ export async function copyToClipboard(content: string) {
 		const vaultDropdown = document.getElementById('vault-select') as HTMLSelectElement;
 		const path = pathField?.value || '';
 		const vault = vaultDropdown?.value || '';
-		
+
 		const tabInfo = await getCurrentTabInfo();
 		await incrementStat('copyToClipboard', vault, path, tabInfo.url, tabInfo.title);
 
@@ -1153,7 +1154,7 @@ export async function copyToClipboard(content: string) {
 		if (clipButton) {
 			const originalText = clipButton.textContent || getMessage('addToObsidian');
 			clipButton.textContent = getMessage('copied');
-			
+
 			// Reset the text after 1.5 seconds
 			setTimeout(() => {
 				clipButton.textContent = originalText;
@@ -1170,7 +1171,7 @@ async function handleSaveToDownloads() {
 		const noteNameField = document.getElementById('note-name-field') as HTMLInputElement;
 		const pathField = document.getElementById('path-name-field') as HTMLInputElement;
 		const vaultDropdown = document.getElementById('vault-select') as HTMLSelectElement;
-		
+
 		let fileName = noteNameField?.value || 'untitled';
 		const path = pathField?.value || '';
 		const vault = vaultDropdown?.value || '';
@@ -1179,7 +1180,16 @@ async function handleSaveToDownloads() {
 
 		const noteContentField = document.getElementById('note-content-field') as HTMLTextAreaElement;
 		const frontmatter = await generateFrontmatter(properties);
-		const fileContent = frontmatter + noteContentField.value;
+		let fileContent = frontmatter + noteContentField.value;
+
+		// Download images if the setting is enabled
+		if (generalSettings.downloadImages && currentTabId) {
+			try {
+				fileContent = await replaceImagesWithBase64(fileContent, currentTabId);
+			} catch (error) {
+				console.warn('Failed to download images, using original URLs:', error);
+			}
+		}
 
 		await saveFile({
 			content: fileContent,
@@ -1265,7 +1275,16 @@ async function handleClipObsidian(): Promise<void> {
 		const properties = getPropertiesFromDOM();
 
 		const frontmatter = await generateFrontmatter(properties);
-		const fileContent = frontmatter + noteContentField.value;
+		let fileContent = frontmatter + noteContentField.value;
+
+		// Download images if the setting is enabled
+		if (generalSettings.downloadImages && currentTabId) {
+			try {
+				fileContent = await replaceImagesWithBase64(fileContent, currentTabId);
+			} catch (error) {
+				console.warn('Failed to download images, using original URLs:', error);
+			}
+		}
 
 		// Save to Obsidian
 		const selectedVault = currentTemplate.vault || vaultDropdown.value;
@@ -1295,25 +1314,25 @@ async function handleClipObsidian(): Promise<void> {
 function addSecondaryAction(container: Element, actionType: string, handler: () => void) {
 	const menuItem = document.createElement('div');
 	menuItem.className = 'menu-item';
-	
+
 	// Create menu item icon container
 	const menuItemIcon = document.createElement('div');
 	menuItemIcon.className = 'menu-item-icon';
-	
+
 	const iconElement = document.createElement('i');
 	iconElement.setAttribute('data-lucide', getActionIcon(actionType));
 	menuItemIcon.appendChild(iconElement);
-	
+
 	// Create menu item title
 	const menuItemTitle = document.createElement('div');
 	menuItemTitle.className = 'menu-item-title';
 	menuItemTitle.setAttribute('data-i18n', actionType);
 	menuItemTitle.textContent = getMessage(actionType);
-	
+
 	// Assemble menu item
 	menuItem.appendChild(menuItemIcon);
 	menuItem.appendChild(menuItemTitle);
-	
+
 	menuItem.addEventListener('click', handler);
 	container.appendChild(menuItem);
 	initializeIcons(menuItem);

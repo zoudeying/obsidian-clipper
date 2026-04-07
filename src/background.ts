@@ -131,10 +131,10 @@ async function initialize() {
 		browser.tabs.onRemoved.addListener((tabId) => {
 			delete highlighterModeState[tabId];
 		});
-		
+
 		// Initialize context menu
 		await debouncedUpdateContextMenu(-1);
-		
+
 		console.log('Background script initialized successfully');
 	} catch (error) {
 		console.error('Error initializing background script:', error);
@@ -176,7 +176,7 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 		
 		if (typedRequest.action === 'copy-to-clipboard' && typedRequest.text) {
 			// Use content script to copy to clipboard
-			browser.tabs.query({active: true, currentWindow: true}).then(async (tabs) => {
+			browser.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
 				const currentTab = tabs[0];
 				if (currentTab && currentTab.id) {
 					try {
@@ -185,15 +185,15 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 							text: typedRequest.text
 						});
 						if ((response as any) && (response as any).success) {
-							sendResponse({success: true});
+							sendResponse({ success: true });
 						} else {
-							sendResponse({success: false, error: 'Failed to copy from content script'});
+							sendResponse({ success: false, error: 'Failed to copy from content script' });
 						}
 					} catch (err) {
 						sendResponse({ success: false, error: (err as Error).message });
 					}
 				} else {
-					sendResponse({success: false, error: 'No active tab found'});
+					sendResponse({ success: false, error: 'No active tab found' });
 				}
 			});
 			return true;
@@ -209,9 +209,9 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 			if (tabId) {
 				ensureContentScriptLoadedInBackground(tabId)
 					.then(() => sendResponse({ success: true }))
-					.catch((error) => sendResponse({ 
-						success: false, 
-						error: error instanceof Error ? error.message : String(error) 
+					.catch((error) => sendResponse({
+						success: false,
+						error: error instanceof Error ? error.message : String(error)
 					}));
 				return true;
 			} else {
@@ -313,45 +313,45 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 		}
 
 		if (typedRequest.action === "getActiveTabAndToggleIframe") {
-			browser.tabs.query({active: true, currentWindow: true}).then(async (tabs) => {
+			browser.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
 				const currentTab = tabs[0];
 				if (currentTab && currentTab.id) {
 					try {
 						// Check if the URL is valid before trying to inject content script
 						if (!currentTab.url || !isValidUrl(currentTab.url) || isBlankPage(currentTab.url)) {
-							sendResponse({success: false, error: 'Cannot open iframe on this page'});
+							sendResponse({ success: false, error: 'Cannot open iframe on this page' });
 							return;
 						}
 
 						// Ensure content script is loaded first
 						await ensureContentScriptLoadedInBackground(currentTab.id);
 						await browser.tabs.sendMessage(currentTab.id, { action: "toggle-iframe" });
-						sendResponse({success: true});
+						sendResponse({ success: true });
 					} catch (error) {
 						console.error('Error sending toggle-iframe message:', error);
-						sendResponse({success: false, error: error instanceof Error ? error.message : String(error)});
+						sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) });
 					}
 				} else {
-					sendResponse({success: false, error: 'No active tab found'});
+					sendResponse({ success: false, error: 'No active tab found' });
 				}
 			});
 			return true;
 		}
 
 		if (typedRequest.action === "getActiveTab") {
-			browser.tabs.query({active: true, currentWindow: true}).then(async (tabs) => {
+			browser.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
 				let currentTab = tabs[0];
 				// Fallback for when currentWindow has no tabs (e.g., debugging popup in DevTools)
 				if (!currentTab || !currentTab.id) {
-					const allActiveTabs = await browser.tabs.query({active: true});
+					const allActiveTabs = await browser.tabs.query({ active: true });
 					currentTab = allActiveTabs.find(tab =>
 						tab.id && tab.url && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('moz-extension://')
 					) || allActiveTabs[0];
 				}
 				if (currentTab && currentTab.id) {
-					sendResponse({tabId: currentTab.id});
+					sendResponse({ tabId: currentTab.id });
 				} else {
-					sendResponse({error: 'No active tab found'});
+					sendResponse({ error: 'No active tab found' });
 				}
 			});
 			return true;
@@ -368,10 +368,10 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 						url: browser.runtime.getURL('settings.html')
 					});
 				}
-				sendResponse({success: true});
+				sendResponse({ success: true });
 			} catch (error) {
 				console.error('Error opening options page:', error);
-				sendResponse({success: false, error: error instanceof Error ? error.message : String(error)});
+				sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) });
 			}
 			return true;
 		}
@@ -478,10 +478,61 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 			}
 		}
 
+		if (typedRequest.action === "downloadImageAsBase64") {
+			const imageUrl = (typedRequest as any).url;
+			(async () => {
+				try {
+					const controller = new AbortController();
+					const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+					// Background fetch automatically uses extension permissions, bypassing strict CORS
+					const response = await fetch(imageUrl, {
+						signal: controller.signal,
+						// Do not specify credentials: 'include' as it conflicts with Access-Control-Allow-Origin: *
+					});
+
+					clearTimeout(timeoutId);
+
+					if (!response.ok) {
+						sendResponse({ dataUri: null });
+						return;
+					}
+
+					const blob = await response.blob();
+					const arrayBuffer = await blob.arrayBuffer();
+					const bytes = new Uint8Array(arrayBuffer);
+
+					// Convert ArrayBuffer to base64 safely without call stack limits
+					let binary = '';
+					for (let i = 0; i < bytes.byteLength; i++) {
+						binary += String.fromCharCode(bytes[i]);
+					}
+					const base64 = btoa(binary);
+
+					let mimeType = blob.type;
+					if (!mimeType) {
+						const ext = imageUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+						const mimeMap: { [key: string]: string } = {
+							'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+							'gif': 'image/gif', 'webp': 'image/webp', 'svg': 'image/svg+xml',
+							'bmp': 'image/bmp', 'ico': 'image/x-icon', 'avif': 'image/avif',
+						};
+						mimeType = mimeMap[ext || ''] || 'image/png';
+					}
+
+					sendResponse({ dataUri: `data:${mimeType};base64,${base64}` });
+				} catch (error) {
+					console.warn(`Failed to download image in background: ${imageUrl}`, error);
+					sendResponse({ dataUri: null });
+				}
+			})();
+			return true;
+		}
+
 		if (typedRequest.action === "openObsidianUrl") {
 			const url = (typedRequest as any).url;
 			if (url) {
-				browser.tabs.query({active: true, currentWindow: true}).then((tabs) => {
+				browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
 					const currentTab = tabs[0];
 					if (currentTab && currentTab.id) {
 						browser.tabs.update(currentTab.id, { url: url }).then(() => {
@@ -517,7 +568,7 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 		}
 
 		// For other actions that use sendResponse
-		if (typedRequest.action === "extractContent" || 
+		if (typedRequest.action === "extractContent" ||
 			typedRequest.action === "ensureContentScriptLoaded" ||
 			typedRequest.action === "getHighlighterMode" ||
 			typedRequest.action === "toggleHighlighterMode" ||
@@ -530,11 +581,11 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 
 browser.commands.onCommand.addListener(async (command, tab) => {
 	if (command === 'quick_clip') {
-		browser.tabs.query({active: true, currentWindow: true}).then((tabs) => {
+		browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
 			if (tabs[0]?.id) {
 				browser.action.openPopup();
 				setTimeout(() => {
-					browser.runtime.sendMessage({action: "triggerQuickClip"})
+					browser.runtime.sendMessage({ action: "triggerQuickClip" })
 						.catch(error => console.error("Failed to send quick clip message:", error));
 				}, 500);
 			}
@@ -596,7 +647,7 @@ const debouncedUpdateContextMenu = debounce(async (tabId: number) => {
 				{
 					id: isHighlighterMode ? "exit-highlighter" : "enter-highlighter",
 					title: isHighlighterMode ? "Exit highlighter" : "Highlight this page",
-					contexts: ["page","image", "video", "audio"]
+					contexts: ["page", "image", "video", "audio"]
 				},
 				{
 					id: "highlight-selection",
@@ -759,15 +810,15 @@ async function toggleHighlighterMode(tabId: number): Promise<boolean> {
 
 async function highlightSelection(tabId: number, info: browser.Menus.OnClickData) {
 	highlighterModeState[tabId] = true;
-	
+
 	const highlightData: Partial<TextHighlightData> = {
 		id: Date.now().toString(),
 		type: 'text',
 		content: info.selectionText || '',
 	};
 
-	await browser.tabs.sendMessage(tabId, { 
-		action: "highlightSelection", 
+	await browser.tabs.sendMessage(tabId, {
+		action: "highlightSelection",
 		isActive: true,
 		highlightData,
 	});
@@ -778,8 +829,8 @@ async function highlightSelection(tabId: number, info: browser.Menus.OnClickData
 async function highlightElement(tabId: number, info: browser.Menus.OnClickData) {
 	highlighterModeState[tabId] = true;
 
-	await browser.tabs.sendMessage(tabId, { 
-		action: "highlightElement", 
+	await browser.tabs.sendMessage(tabId, {
+		action: "highlightElement",
 		isActive: true,
 		targetElementInfo: {
 			mediaType: info.mediaType === 'image' ? 'img' : info.mediaType,

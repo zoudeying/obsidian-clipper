@@ -195,6 +195,19 @@
 									</div>
 									<div class="setting-item mod-horizontal mod-toggle">
 										<div class="setting-item-info">
+											<label for="download-images-toggle" data-i18n="downloadImages">Download images</label>
+											<div class="setting-item-description" data-i18n="downloadImagesDescription">
+												Embed images as base64 data in the clipped note so they can be viewed offline. This increases the note size but ensures images are preserved even if the original source requires authentication.
+											</div>
+										</div>
+										<div class="setting-item-control">
+											<div class="checkbox-container">
+												<input type="checkbox" id="download-images-toggle" />
+											</div>
+										</div>
+									</div>
+									<div class="setting-item mod-horizontal mod-toggle">
+										<div class="setting-item-info">
 											<label for="legacy-mode-toggle" data-i18n="legacyMode">Legacy&nbsp;mode</label>
 											<div class="setting-item-description" data-i18n="legacyModeDescription">
 												Uses the URI clipping method compatible with Obsidian 1.6.7 or earlier. Note that the length of the content you can clip is limited by your browser and OS. Some pages may fail without any errors.
@@ -247,6 +260,8 @@
 										</div>
 										<div class="setting-item-control">
 											<button type="button" id="import-all-settings-btn" data-i18n="import">Import</button>
+										</div>
+									</div>
 										</div>
 									</div>
 								</div>

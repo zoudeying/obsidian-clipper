@@ -86,11 +86,11 @@ export async function setShortcutInstructions() {
 		// Clear content
 		shortcutInstructionsElement.textContent = '';
 		shortcutInstructionsElement.appendChild(document.createTextNode(getMessage('shortcutInstructionsIntro') + ' '));
-		
+
 		// Browser-specific instructions
 		let instructionsText = '';
 		let url = '';
-		
+
 		switch (browser) {
 			case 'chrome':
 				instructionsText = getMessage('shortcutInstructionsChrome', ['$URL']);
@@ -115,17 +115,17 @@ export async function setShortcutInstructions() {
 			default:
 				instructionsText = getMessage('shortcutInstructionsDefault');
 		}
-		
+
 		if (url) {
 			// Split text around the URL placeholder and add strong element
 			const parts = instructionsText.split('$URL');
 			if (parts.length === 2) {
 				shortcutInstructionsElement.appendChild(document.createTextNode(parts[0]));
-				
+
 				const strongElement = document.createElement('strong');
 				strongElement.textContent = url;
 				shortcutInstructionsElement.appendChild(strongElement);
-				
+
 				shortcutInstructionsElement.appendChild(document.createTextNode(parts[1]));
 			} else {
 				// Fallback if no placeholder found
@@ -201,7 +201,7 @@ export function initializeGeneralSettings(): void {
 							}
 						});
 						await handleRating(rating);
-						
+
 						// Hide the rating section after rating
 						if (rateExtensionSection) {
 							rateExtensionSection.style.display = 'none';
@@ -227,6 +227,7 @@ export function initializeGeneralSettings(): void {
 		initializeHighlighterSettings();
 		initializeExportHighlightsButton();
 		initializeSaveBehaviorDropdown();
+		initializeDownloadImagesToggle();
 		await initializeUsageChart();
 
 		// Initialize feedback modal close button
@@ -256,6 +257,7 @@ function saveSettingsFromForm(): void {
 	const highlighterToggle = document.getElementById('highlighter-toggle') as HTMLInputElement;
 	const alwaysShowHighlightsToggle = document.getElementById('highlighter-visibility') as HTMLInputElement;
 	const highlightBehaviorSelect = document.getElementById('highlighter-behavior') as HTMLSelectElement;
+	const downloadImagesToggle = document.getElementById('download-images-toggle') as HTMLInputElement;
 
 	const updatedSettings = {
 		...generalSettings, // Keep existing settings
@@ -266,7 +268,8 @@ function saveSettingsFromForm(): void {
 		silentOpen: silentOpenToggle?.checked ?? generalSettings.silentOpen,
 		highlighterEnabled: highlighterToggle?.checked ?? generalSettings.highlighterEnabled,
 		alwaysShowHighlights: alwaysShowHighlightsToggle?.checked ?? generalSettings.alwaysShowHighlights,
-		highlightBehavior: highlightBehaviorSelect?.value ?? generalSettings.highlightBehavior
+		highlightBehavior: highlightBehaviorSelect?.value ?? generalSettings.highlightBehavior,
+		downloadImages: downloadImagesToggle?.checked ?? generalSettings.downloadImages
 	};
 
 	saveSettings(updatedSettings);
@@ -311,7 +314,7 @@ async function initializeKeyboardShortcuts(): Promise<void> {
 		getCommands().then(commands => {
 			commands.forEach(command => {
 				const shortcutItem = createElementWithClass('div', 'shortcut-item');
-				
+
 				const descriptionSpan = document.createElement('span');
 				descriptionSpan.textContent = command.description;
 				shortcutItem.appendChild(descriptionSpan);
@@ -344,6 +347,12 @@ function initializeSilentOpenToggle(): void {
 	});
 }
 
+function initializeDownloadImagesToggle(): void {
+	initializeSettingToggle('download-images-toggle', generalSettings.downloadImages, (checked) => {
+		saveSettings({ ...generalSettings, downloadImages: checked });
+	});
+}
+
 function initializeOpenBehaviorDropdown(): void {
 	initializeSettingDropdown(
 		'open-behavior-dropdown',
@@ -362,21 +371,21 @@ function initializeResetDefaultTemplateButton(): void {
 }
 
 function initializeSaveBehaviorDropdown(): void {
-    const dropdown = document.getElementById('save-behavior-dropdown') as HTMLSelectElement;
-    if (!dropdown) return;
+	const dropdown = document.getElementById('save-behavior-dropdown') as HTMLSelectElement;
+	if (!dropdown) return;
 
-    dropdown.value = generalSettings.saveBehavior;
-    dropdown.addEventListener('change', () => {
-        const newValue = dropdown.value as 'addToObsidian' | 'copyToClipboard' | 'saveFile';
-        saveSettings({ saveBehavior: newValue });
-    });
+	dropdown.value = generalSettings.saveBehavior;
+	dropdown.addEventListener('change', () => {
+		const newValue = dropdown.value as 'addToObsidian' | 'copyToClipboard' | 'saveFile';
+		saveSettings({ saveBehavior: newValue });
+	});
 }
 
 export function resetDefaultTemplate(): void {
 	const defaultTemplate = createDefaultTemplate();
 	const currentTemplates = getTemplates();
 	const defaultIndex = currentTemplates.findIndex((t: Template) => t.name === getMessage('defaultTemplateName'));
-	
+
 	if (defaultIndex !== -1) {
 		currentTemplates[defaultIndex] = defaultTemplate;
 	} else {
@@ -465,17 +474,17 @@ async function initializeUsageChart(): Promise<void> {
 async function handleRating(rating: number) {
 	// Get existing ratings from storage
 	const existingRatings = await getLocalStorage('ratings') || [];
-	
+
 	// Add new rating
 	const newRating = {
 		rating,
 		date: new Date().toISOString()
 	};
-	
+
 	// Update both storage and generalSettings
 	const updatedRatings = [...existingRatings, newRating];
 	generalSettings.ratings = updatedRatings;
-	
+
 	// Save to storage
 	await setLocalStorage('ratings', updatedRatings);
 	await saveSettings();

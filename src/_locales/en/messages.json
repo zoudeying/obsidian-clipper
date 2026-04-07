@@ -189,6 +189,12 @@
 	"done": {
 		"message": "Done"
 	},
+	"downloadImages": {
+		"message": "Download images"
+	},
+	"downloadImagesDescription": {
+		"message": "Embed images as base64 data in the clipped note so they can be viewed offline. This increases the note size but ensures images are preserved even if the original source requires authentication."
+	},
 	"dragAndDropFile": {
 		"message": "Drag and drop file here"
 	},

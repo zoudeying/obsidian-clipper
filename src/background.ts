@@ -742,8 +742,6 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 			})();
 			return true;
 		}
-			return true;
-		}
 
 		if (typedRequest.action === "openObsidianUrl") {
 			const url = (typedRequest as any).url;

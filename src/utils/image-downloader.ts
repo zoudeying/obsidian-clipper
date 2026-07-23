@@ -2,6 +2,54 @@ import browser from './browser-polyfill';
 
 const IMAGE_DOWNLOAD_TIMEOUT = 15000; // 15 seconds per image
 
+export interface ImageTarget {
+    cleanUrl: string;
+    title?: string;
+}
+
+export interface ExtractedImageMatch {
+    fullMatch: string;
+    alt: string;
+    cleanUrl: string;
+    title?: string;
+    isHtml: boolean;
+    isTableLine: boolean;
+}
+
+/**
+ * Parse Markdown image destination string to extract clean URL and optional title.
+ * Examples:
+ *   'https://domain.com/pic.png "Picture1.png"' => { cleanUrl: 'https://domain.com/pic.png', title: 'Picture1.png' }
+ *   '<https://domain.com/pic.png> "title"' => { cleanUrl: 'https://domain.com/pic.png', title: 'title' }
+ *   'https://domain.com/pic.png"' => { cleanUrl: 'https://domain.com/pic.png', title: undefined }
+ */
+export function parseImageTarget(destination: string): ImageTarget {
+    let text = destination.trim();
+    let title: string | undefined;
+
+    // Check for title in quotes/parens at the end: "title", 'title', (title)
+    const titleMatch = text.match(/\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\))\s*$/);
+    if (titleMatch) {
+        title = titleMatch[1] ?? titleMatch[2] ?? titleMatch[3];
+        text = text.substring(0, titleMatch.index).trim();
+    }
+
+    // Strip wrapping angle brackets <...> if present
+    if (text.startsWith('<') && text.endsWith('>')) {
+        text = text.slice(1, -1).trim();
+    } else if (text.startsWith('<')) {
+        const closingIdx = text.indexOf('>');
+        if (closingIdx > 0) {
+            text = text.substring(1, closingIdx).trim();
+        }
+    }
+
+    // Clean trailing/leading quotes, brackets or whitespace
+    text = text.replace(/["'>\s]+$/, '').replace(/^["'<\s]+/, '');
+
+    return { cleanUrl: text, title };
+}
+
 /**
  * Download an image and convert it to a base64 data URI.
  * This function is designed to run in the content script context
@@ -9,10 +57,11 @@ const IMAGE_DOWNLOAD_TIMEOUT = 15000; // 15 seconds per image
  */
 export async function downloadImageAsBase64(url: string): Promise<string | null> {
     try {
+        const { cleanUrl } = parseImageTarget(url);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), IMAGE_DOWNLOAD_TIMEOUT);
 
-        const response = await fetch(url, {
+        const response = await fetch(cleanUrl, {
             signal: controller.signal,
             credentials: 'include',
             mode: 'cors',
@@ -21,22 +70,23 @@ export async function downloadImageAsBase64(url: string): Promise<string | null>
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            console.warn(`Failed to download image: ${url} (${response.status})`);
+            console.warn(`Failed to download image: ${cleanUrl} (${response.status})`);
             return null;
         }
 
         const blob = await response.blob();
-        const mimeType = blob.type || guessMimeType(url);
+        const mimeType = (blob.type && blob.type !== 'application/octet-stream')
+            ? blob.type
+            : guessMimeType(cleanUrl);
 
         return new Promise<string | null>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = reader.result as string;
-                // FileReader.readAsDataURL already returns data:...;base64,...
                 resolve(base64);
             };
             reader.onerror = () => {
-                console.warn(`Failed to read image as base64: ${url}`);
+                console.warn(`Failed to read image as base64: ${cleanUrl}`);
                 resolve(null);
             };
             reader.readAsDataURL(blob);
@@ -54,8 +104,9 @@ export async function downloadImageAsBase64(url: string): Promise<string | null>
 /**
  * Guess MIME type from URL file extension
  */
-function guessMimeType(url: string): string {
-    const ext = url.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+export function guessMimeType(url: string): string {
+    const cleanPath = url.split('?')[0].split('#')[0];
+    const ext = cleanPath.split('.').pop()?.toLowerCase();
     const mimeMap: { [key: string]: string } = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
@@ -70,45 +121,99 @@ function guessMimeType(url: string): string {
     return mimeMap[ext || ''] || 'image/png';
 }
 
+function escapeHtml(str: string): string {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
+ * Extract image matches (Markdown images & HTML <img> tags) line-by-line.
+ */
+export function extractImageMatches(markdown: string): ExtractedImageMatch[] {
+    const lines = markdown.split(/\r?\n/);
+    const matches: ExtractedImageMatch[] = [];
+
+    for (const line of lines) {
+        const isTableLine = line.includes('|');
+
+        // 1. Match Markdown images: ![alt](destination)
+        // Skip data: URIs
+        const mdRegex = /!\[([^\]]*)\]\((?!data:)((?:[^()]*|\([^()]*\))*)\)/g;
+        let mdMatch: RegExpExecArray | null;
+        while ((mdMatch = mdRegex.exec(line)) !== null) {
+            const fullMatch = mdMatch[0];
+            const alt = mdMatch[1];
+            const destination = mdMatch[2];
+            const { cleanUrl, title } = parseImageTarget(destination);
+
+            if (cleanUrl && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('//'))) {
+                const finalUrl = cleanUrl.startsWith('//') ? 'https:' + cleanUrl : cleanUrl;
+                matches.push({
+                    fullMatch,
+                    alt,
+                    cleanUrl: finalUrl,
+                    title,
+                    isHtml: false,
+                    isTableLine,
+                });
+            }
+        }
+
+        // 2. Match HTML <img> tags: <img ... src="url" ...>
+        const htmlRegex = /<img\s+[^>]*src=["'](?!data:)([^"']+)["'][^>]*>/gi;
+        let htmlMatch: RegExpExecArray | null;
+        while ((htmlMatch = htmlRegex.exec(line)) !== null) {
+            const fullMatch = htmlMatch[0];
+            const altMatch = fullMatch.match(/alt=["']([^"']*)["']/i);
+            const titleMatch = fullMatch.match(/title=["']([^"']*)["']/i);
+            const alt = altMatch ? altMatch[1] : '';
+            const title = titleMatch ? titleMatch[1] : undefined;
+            const rawUrl = htmlMatch[1].trim();
+            const { cleanUrl } = parseImageTarget(rawUrl);
+
+            if (cleanUrl && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('//'))) {
+                const finalUrl = cleanUrl.startsWith('//') ? 'https:' + cleanUrl : cleanUrl;
+                matches.push({
+                    fullMatch,
+                    alt,
+                    cleanUrl: finalUrl,
+                    title,
+                    isHtml: true,
+                    isTableLine,
+                });
+            }
+        }
+    }
+
+    return matches;
+}
+
 /**
  * Replace all image URLs in markdown with base64 data URIs.
- * 
- * This sends messages to the content script to download images
- * within the page's context (with cookies/session).
  * 
  * @param markdown The markdown content with image URLs
  * @param tabId The tab ID to send download requests to
  * @returns The markdown with images replaced by base64 data URIs
  */
 export async function replaceImagesWithBase64(markdown: string, tabId: number): Promise<string> {
-    // Match markdown images: ![alt](url)
-    // Don't match images that are already data URIs
-    const imageRegex = /!\[([^\]]*)\]\((?!data:)((?:[^()]*|\([^()]*\))*)\)/g;
-
-    const matches: { fullMatch: string; alt: string; url: string }[] = [];
-    let match;
-
-    while ((match = imageRegex.exec(markdown)) !== null) {
-        matches.push({
-            fullMatch: match[0],
-            alt: match[1],
-            url: match[2].trim(),
-        });
-    }
+    const matches = extractImageMatches(markdown);
 
     if (matches.length === 0) {
         return markdown;
     }
 
-    // Deduplicate URLs to avoid downloading the same image twice
-    const uniqueUrls = [...new Set(matches.map(m => m.url))];
+    // Deduplicate URLs
+    const uniqueUrls = [...new Set(matches.map(m => m.cleanUrl))];
 
     console.log(`Downloading ${uniqueUrls.length} unique images...`);
 
-    // Download all unique images in parallel via the content script
     const urlToBase64Map = new Map<string, string | null>();
 
-    const results = await Promise.all(
+    await Promise.all(
         uniqueUrls.map(async (url) => {
             try {
                 const response = await browser.runtime.sendMessage({
@@ -124,26 +229,41 @@ export async function replaceImagesWithBase64(markdown: string, tabId: number): 
         })
     );
 
-    // Replace all image URLs with base64 data URIs
     let result = markdown;
     for (const m of matches) {
-        const base64 = urlToBase64Map.get(m.url);
+        const base64 = urlToBase64Map.get(m.cleanUrl);
         if (base64) {
-            let filename = 'image';
-            try {
-                const urlObj = new URL(m.url);
-                const lastPart = urlObj.pathname.split('/').pop();
-                if (lastPart && lastPart.includes('.')) {
-                    // Try to decode URI component for beautiful filenames
-                    filename = decodeURIComponent(lastPart);
+            let replacement: string;
+
+            if (m.isHtml) {
+                // Replace src="..." attribute inside HTML <img> tag
+                replacement = m.fullMatch.replace(/src=["']([^"']+)["']/i, `src="${base64}"`);
+            } else if (m.isTableLine) {
+                // Markdown image inside table cell: convert to HTML <img> tag for proper Markdown table rendering
+                const altAttr = m.alt ? ` alt="${escapeHtml(m.alt)}"` : '';
+                const titleAttr = m.title ? ` title="${escapeHtml(m.title)}"` : '';
+                replacement = `<img src="${base64}"${altAttr}${titleAttr}>`;
+            } else {
+                // Standard markdown image outside of table
+                let filename = m.title;
+                if (!filename) {
+                    try {
+                        const cleanPath = m.cleanUrl.split('?')[0].split('#')[0];
+                        const urlObj = new URL(cleanPath);
+                        const lastPart = urlObj.pathname.split('/').pop();
+                        if (lastPart && lastPart.includes('.')) {
+                            filename = decodeURIComponent(lastPart);
+                        }
+                    } catch (e) {
+                        // Ignore URL parsing errors
+                    }
                 }
-            } catch (e) {
-                // Ignore URL parsing errors
+                const titlePart = filename ? ` "${filename}"` : '';
+                replacement = `![${m.alt}](${base64}${titlePart})`;
             }
-            const replacement = `![${m.alt}](${base64} "${filename}")`;
+
             result = result.replace(m.fullMatch, replacement);
         }
-        // If base64 is null, keep the original URL
     }
 
     const successCount = [...urlToBase64Map.values()].filter(v => v !== null).length;

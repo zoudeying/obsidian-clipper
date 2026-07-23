@@ -693,7 +693,13 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 		}
 
 		if (typedRequest.action === "downloadImageAsBase64") {
-			const imageUrl = (typedRequest as any).url;
+			let imageUrl = (typedRequest as any).url;
+			if (!imageUrl) {
+				sendResponse({ dataUri: null });
+				return true;
+			}
+			imageUrl = imageUrl.trim().replace(/["'>\s]+$/, '').replace(/^["'<\s]+/, '');
+
 			(async () => {
 				try {
 					const controller = new AbortController();
@@ -724,8 +730,9 @@ browser.runtime.onMessage.addListener((request: unknown, sender: browser.Runtime
 					const base64 = btoa(binary);
 
 					let mimeType = blob.type;
-					if (!mimeType) {
-						const ext = imageUrl.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+					if (!mimeType || mimeType === 'application/octet-stream') {
+						const cleanPath = imageUrl.split('?')[0].split('#')[0];
+						const ext = cleanPath.split('.').pop()?.toLowerCase();
 						const mimeMap: { [key: string]: string } = {
 							'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
 							'gif': 'image/gif', 'webp': 'image/webp', 'svg': 'image/svg+xml',
